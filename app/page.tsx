@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { Button } from "@/components/ui/button";
 
 export default function Home() {
   return (
@@ -62,6 +63,18 @@ export default function Home() {
           >
             Documentation
           </a>
+          <Button
+            render={
+              <a
+                href="https://ui.shadcn.com"
+                target="_blank"
+                rel="noopener noreferrer"
+              />
+            }
+            nativeButton={false}
+          >
+            shadcn/ui
+          </Button>
         </div>
       </main>
     </div>
