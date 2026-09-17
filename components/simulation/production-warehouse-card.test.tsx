@@ -31,13 +31,25 @@ test("dragover는 항상 허용되어 브라우저의 '허용 안 됨' 커서가
   expect(notCancelled).toBe(false);
 });
 
+test("생산법인 재고를 드래그하면 LG TV 모양을 드래그 미리보기로 쓴다", () => {
+  render(<ProductionWarehouseCard pending={[]} stock={1000} onCancel={() => {}} />);
+
+  const box = screen.getByTitle("드래그해서 판매법인 창고로 출하 (1회 100개)");
+  const dataTransfer = { setData: vi.fn(), getData: vi.fn(), setDragImage: vi.fn(), effectAllowed: "" };
+  fireEvent.dragStart(box, { dataTransfer });
+
+  expect(dataTransfer.setDragImage).toHaveBeenCalled();
+});
+
 test("합쳐진 박스를 드래그하면 대표 출하 하나(100개)만 이동한다", () => {
   const pending = [shipment("a", "us"), shipment("b", "us")];
   render(<ProductionWarehouseCard pending={pending} stock={1000} onCancel={() => {}} />);
 
   const box = screen.getByTitle(/미국로 총 200개/);
-  const dataTransfer = { setData: vi.fn(), getData: vi.fn(), effectAllowed: "" };
+  const dataTransfer = { setData: vi.fn(), getData: vi.fn(), setDragImage: vi.fn(), effectAllowed: "" };
   fireEvent.dragStart(box, { dataTransfer });
+
+  expect(dataTransfer.setDragImage).toHaveBeenCalled();
 
   expect(dataTransfer.setData).toHaveBeenCalledWith(
     "application/x-miri-shipment",

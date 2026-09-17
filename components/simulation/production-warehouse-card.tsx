@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 
-import { Factory, GripVertical } from "lucide-react"
+import { Factory, Tv } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -35,11 +35,34 @@ interface ProductionWarehouseCardProps {
 
 export function ProductionWarehouseCard({ pending, stock, onCancel }: ProductionWarehouseCardProps) {
   const [dragOver, setDragOver] = useState(false)
+  const tvDragImageRef = useRef<HTMLDivElement>(null)
+
+  function applyTvDragImage(event: React.DragEvent) {
+    // setDragImage 실패가 실제 배정(setDragPayload)까지 막으면 안 되므로 절대 던지지 않는다.
+    try {
+      if (tvDragImageRef.current && typeof event.dataTransfer.setDragImage === "function") {
+        event.dataTransfer.setDragImage(tvDragImageRef.current, 24, 24)
+      }
+    } catch {
+      // 드래그 미리보기는 장식일 뿐이니 실패해도 무시한다.
+    }
+  }
 
   return (
-    <Card
-      size="sm"
-      onDragOver={(event) => {
+    <>
+      {/* 드래그 중에 브라우저 기본 미리보기 대신 보여줄 LG TV 모양. 화면 밖에 그려두고
+          setDragImage로 이 요소를 캡처해서 쓴다. */}
+      <div
+        ref={tvDragImageRef}
+        aria-hidden
+        className="pointer-events-none fixed top-[-999px] left-[-999px] flex size-12 items-center justify-center rounded-md bg-primary text-primary-foreground"
+      >
+        <Tv className="size-7" />
+      </div>
+
+      <Card
+        size="sm"
+        onDragOver={(event) => {
         // 이 페이지엔 우리 출하 박스 말고 다른 드래그 가능한 요소가 없으므로, dragover는 항상
         // 허용하고 실제 판정(취소 대상인지)은 drop 시점에서 한다. dragover 단계에서 커스텀
         // MIME 타입을 미리 걸러내려 하면 브라우저에 따라 preventDefault가 호출되지 않아 "허용
@@ -70,10 +93,13 @@ export function ProductionWarehouseCard({ pending, stock, onCancel }: Production
         <div
           draggable
           title="드래그해서 판매법인 창고로 출하 (1회 100개)"
-          onDragStart={(event) => setDragPayload(event, { type: "production" })}
+          onDragStart={(event) => {
+            applyTvDragImage(event)
+            setDragPayload(event, { type: "production" })
+          }}
           className="flex h-12 shrink-0 cursor-grab flex-col items-center justify-center gap-0.5 rounded-md bg-primary px-4 text-primary-foreground select-none active:cursor-grabbing"
         >
-          <GripVertical className="size-3.5" />
+          <Tv className="size-3.5" />
           <span className="text-[0.6875rem] font-semibold leading-none whitespace-nowrap">
             {stock.toLocaleString("ko-KR")}
           </span>
@@ -87,9 +113,10 @@ export function ProductionWarehouseCard({ pending, stock, onCancel }: Production
               key={destination}
               draggable
               title={`대기 중 · ${CORP_BY_ID[destination].name}로 총 ${totalQuantity}개 — 드래그하면 100개씩 목적지를 바꿉니다`}
-              onDragStart={(event) =>
+              onDragStart={(event) => {
+                applyTvDragImage(event)
                 setDragPayload(event, { type: "pending", shipmentId: representative.id })
-              }
+              }}
               className="flex h-12 shrink-0 cursor-grab flex-col items-center justify-center gap-0.5 rounded-md border border-border bg-secondary px-3 text-secondary-foreground select-none active:cursor-grabbing"
             >
               <span className="text-[0.625rem] leading-none whitespace-nowrap">
@@ -103,5 +130,6 @@ export function ProductionWarehouseCard({ pending, stock, onCancel }: Production
         })}
       </CardContent>
     </Card>
+    </>
   )
 }

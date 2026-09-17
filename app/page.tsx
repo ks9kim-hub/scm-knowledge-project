@@ -59,7 +59,7 @@ export default function Home() {
   }
 
   return (
-    <div className="flex flex-1 justify-center bg-zinc-50 p-6 dark:bg-black">
+    <div className="flex flex-1 justify-center bg-zinc-50 p-4 dark:bg-black">
       <GameBoard
         state={game}
         onAllocate={(destination: CorpId) =>

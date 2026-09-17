@@ -1,6 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
+import { OnboardingGuide } from "@/components/simulation/onboarding-guide"
 import { ProductionWarehouseCard } from "@/components/simulation/production-warehouse-card"
 import { SalesWarehouseCard } from "@/components/simulation/sales-warehouse-card"
 import { WorldMapBackground } from "@/components/simulation/world-map-background"
@@ -27,11 +28,14 @@ export function GameBoard({ state, onAllocate, onReassign, onCancel, onAdvance }
   const pending = pendingShipments(state)
 
   return (
-    <div className="flex w-full max-w-6xl flex-col gap-4">
+    <div className="flex w-full max-w-6xl flex-col gap-2">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-medium">
-          {state.currentWeek}주차 / 총 {state.periodWeeks}주
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-sm font-medium">
+            {state.currentWeek}주차 / 총 {state.periodWeeks}주
+          </p>
+          <OnboardingGuide />
+        </div>
         <Button onClick={onAdvance}>다음 주</Button>
       </div>
 
