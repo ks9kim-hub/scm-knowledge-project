@@ -6,7 +6,7 @@ import { Factory, Tv } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { CORP_BY_ID } from "@/lib/simulation/master-data"
+import { CORP_BY_ID, MOQ } from "@/lib/simulation/master-data"
 import { readDragPayload, setDragPayload } from "@/lib/simulation/drag-payload"
 import type { CorpId, Shipment } from "@/lib/simulation/types"
 import { cn } from "cn"
@@ -31,11 +31,22 @@ interface ProductionWarehouseCardProps {
   pending: Shipment[]
   stock: number
   onCancel: (shipmentId: string) => void
+  /** 고인물 모드가 아니면 Number.POSITIVE_INFINITY라 제약 표시가 나타나지 않는다. */
+  weeklyCapacity: number
+  remainingCapacity: number
 }
 
-export function ProductionWarehouseCard({ pending, stock, onCancel }: ProductionWarehouseCardProps) {
+export function ProductionWarehouseCard({
+  pending,
+  stock,
+  onCancel,
+  weeklyCapacity,
+  remainingCapacity,
+}: ProductionWarehouseCardProps) {
   const [dragOver, setDragOver] = useState(false)
   const tvDragImageRef = useRef<HTMLDivElement>(null)
+  const isCapacityLimited = Number.isFinite(weeklyCapacity)
+  const capacityExhausted = isCapacityLimited && remainingCapacity < MOQ
 
   function applyTvDragImage(event: React.DragEvent) {
     // setDragImage 실패가 실제 배정(setDragPayload)까지 막으면 안 되므로 절대 던지지 않는다.
@@ -88,16 +99,33 @@ export function ProductionWarehouseCard({ pending, stock, onCancel }: Production
           <Factory className="size-3" />
           생산법인 · 한국
         </CardTitle>
+        {isCapacityLimited && (
+          <p
+            className={cn(
+              "text-[0.5625rem] whitespace-nowrap",
+              capacityExhausted ? "text-destructive" : "text-muted-foreground"
+            )}
+          >
+            이번 주 출하 가능 {remainingCapacity.toLocaleString("ko-KR")} / {weeklyCapacity.toLocaleString("ko-KR")}
+          </p>
+        )}
       </CardHeader>
       <CardContent className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
         <div
-          draggable
-          title="드래그해서 판매법인 창고로 출하 (1회 100개)"
+          draggable={!capacityExhausted}
+          title={
+            capacityExhausted
+              ? "이번 주 출하 가능량을 다 썼습니다. 다음 주로 넘기면 다시 배정할 수 있어요."
+              : "드래그해서 판매법인 창고로 출하 (1회 100개)"
+          }
           onDragStart={(event) => {
             applyTvDragImage(event)
             setDragPayload(event, { type: "production" })
           }}
-          className="flex h-12 shrink-0 cursor-grab flex-col items-center justify-center gap-0.5 rounded-md bg-primary px-4 text-primary-foreground select-none active:cursor-grabbing"
+          className={cn(
+            "flex h-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md bg-primary px-4 text-primary-foreground select-none",
+            capacityExhausted ? "cursor-not-allowed opacity-40" : "cursor-grab active:cursor-grabbing"
+          )}
         >
           <Tv className="size-3.5" />
           <span className="text-[0.6875rem] font-semibold leading-none whitespace-nowrap">

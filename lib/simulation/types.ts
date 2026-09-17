@@ -42,6 +42,10 @@ export interface GameState {
   periodWeeks: number
   currentWeek: number
   finished: boolean
+  /** 고인물 모드(주차별 판매예측 편차 확대 + 생산법인 주간 출하량 제약)가 걸려 있는지 */
+  hardcore: boolean
+  /** 이번 주에 이미 배정한 총 출하량. 고인물 모드에서만 주간 상한과 비교하는 데 쓴다. */
+  shippedThisWeek: number
   salesWarehouseStock: Record<CorpId, number>
   /**
    * 생산법인 창고 재고. 판매계획만큼 매주 보충되어 항상 충분하며, 학습자의 출하 배정을

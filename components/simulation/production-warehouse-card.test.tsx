@@ -8,9 +8,12 @@ function shipment(id: string, destination: CorpId): Shipment {
   return { id, destination, quantity: 100, departWeek: 1, arrivalWeek: 3, status: "pending" };
 }
 
+// 일반 모드(고인물 아님)에서는 제약이 없어 항상 무한대다.
+const noCapacityLimit = { weeklyCapacity: Infinity, remainingCapacity: Infinity };
+
 test("같은 목적지로 가는 대기 중 출하는 하나의 박스로 합쳐 총량을 보여준다", () => {
   const pending = [shipment("a", "us"), shipment("b", "us"), shipment("c", "gb")];
-  render(<ProductionWarehouseCard pending={pending} stock={1000} onCancel={() => {}} />);
+  render(<ProductionWarehouseCard pending={pending} stock={1000} onCancel={() => {}} {...noCapacityLimit} />);
 
   expect(screen.getByTitle(/미국로 총 200개/)).toBeInTheDocument();
   expect(screen.getByTitle(/영국로 총 100개/)).toBeInTheDocument();
@@ -18,13 +21,13 @@ test("같은 목적지로 가는 대기 중 출하는 하나의 박스로 합쳐
 
 test("베트남처럼 이름이 긴 법인도 잘리지 않고 전체 이름이 보인다", () => {
   const pending = [shipment("a", "vn")];
-  render(<ProductionWarehouseCard pending={pending} stock={1000} onCancel={() => {}} />);
+  render(<ProductionWarehouseCard pending={pending} stock={1000} onCancel={() => {}} {...noCapacityLimit} />);
 
   expect(screen.getByText("베트남")).toBeInTheDocument();
 });
 
 test("dragover는 항상 허용되어 브라우저의 '허용 안 됨' 커서가 뜨지 않는다", () => {
-  render(<ProductionWarehouseCard pending={[]} stock={1000} onCancel={() => {}} />);
+  render(<ProductionWarehouseCard pending={[]} stock={1000} onCancel={() => {}} {...noCapacityLimit} />);
 
   const card = screen.getByText("생산법인 · 한국").closest('[data-slot="card"]')!;
   const notCancelled = fireEvent.dragOver(card, { dataTransfer: { types: [], getData: () => "" } });
@@ -32,7 +35,7 @@ test("dragover는 항상 허용되어 브라우저의 '허용 안 됨' 커서가
 });
 
 test("생산법인 재고를 드래그하면 LG TV 모양을 드래그 미리보기로 쓴다", () => {
-  render(<ProductionWarehouseCard pending={[]} stock={1000} onCancel={() => {}} />);
+  render(<ProductionWarehouseCard pending={[]} stock={1000} onCancel={() => {}} {...noCapacityLimit} />);
 
   const box = screen.getByTitle("드래그해서 판매법인 창고로 출하 (1회 100개)");
   const dataTransfer = { setData: vi.fn(), getData: vi.fn(), setDragImage: vi.fn(), effectAllowed: "" };
@@ -43,7 +46,7 @@ test("생산법인 재고를 드래그하면 LG TV 모양을 드래그 미리보
 
 test("합쳐진 박스를 드래그하면 대표 출하 하나(100개)만 이동한다", () => {
   const pending = [shipment("a", "us"), shipment("b", "us")];
-  render(<ProductionWarehouseCard pending={pending} stock={1000} onCancel={() => {}} />);
+  render(<ProductionWarehouseCard pending={pending} stock={1000} onCancel={() => {}} {...noCapacityLimit} />);
 
   const box = screen.getByTitle(/미국로 총 200개/);
   const dataTransfer = { setData: vi.fn(), getData: vi.fn(), setDragImage: vi.fn(), effectAllowed: "" };
@@ -55,4 +58,27 @@ test("합쳐진 박스를 드래그하면 대표 출하 하나(100개)만 이동
     "application/x-miri-shipment",
     JSON.stringify({ type: "pending", shipmentId: "a" })
   );
+});
+
+test("고인물 모드에서는 이번 주 출하 가능량이 표시된다", () => {
+  render(
+    <ProductionWarehouseCard
+      pending={[]}
+      stock={1000}
+      onCancel={() => {}}
+      weeklyCapacity={1200}
+      remainingCapacity={300}
+    />
+  );
+
+  expect(screen.getByText("이번 주 출하 가능 300 / 1,200")).toBeInTheDocument();
+});
+
+test("고인물 모드에서 이번 주 출하 가능량을 다 쓰면 드래그가 비활성화된다", () => {
+  render(
+    <ProductionWarehouseCard pending={[]} stock={1000} onCancel={() => {}} weeklyCapacity={1200} remainingCapacity={0} />
+  );
+
+  const box = screen.getByTitle(/이번 주 출하 가능량을 다 썼습니다/);
+  expect(box).toHaveAttribute("draggable", "false");
 });

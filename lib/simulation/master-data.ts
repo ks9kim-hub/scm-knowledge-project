@@ -30,12 +30,29 @@ export const DIO_TARGET = 14
 export const MOQ = 100
 
 export const PERIOD_OPTIONS = [
-  { weeks: 4, label: "👶 입문자 모드 (1개월)" },
-  { weeks: 8, label: "🧑 실전러 모드 (2개월)" },
-  { weeks: 12, label: "👨 고인물 모드 (3개월)" },
+  { weeks: 4, label: "👶 입문자 모드 (1개월)", hardcore: false },
+  { weeks: 8, label: "🧑 실전러 모드 (2개월)", hardcore: false },
+  { weeks: 12, label: "👨 고인물 모드 (3개월)", hardcore: true },
 ] as const
 
 export const DEFAULT_PERIOD_WEEKS = 4
+
+/** 일반 모드의 주차별 판매예측 편차(±15%). */
+export const DEFAULT_FORECAST_JITTER = 0.15
+
+/**
+ * 고인물 모드의 주차별 판매예측 편차(±40%). 돌발 수요 급증·급감을 흉내 내는 장치라 평소보다
+ * 훨씬 크게 흔든다.
+ */
+export const HARDCORE_FORECAST_JITTER = 0.4
+
+/**
+ * 고인물 모드에서 생산법인이 그 주에 실제로 내보낼 수 있는 총량은 그 주 전체 판매예측
+ * 합계의 이 배수까지다. 여유를 15%만 둬서 여섯 법인에 나눠 배정하려면 우선순위를 따져야
+ * 하지만, 그 주 예측을 항상 웃돌게 잡아서 아무리 잘해도 못 채우는 결품이 강제되지는 않게
+ * 한다.
+ */
+export const HARDCORE_CAPACITY_MARGIN = 1.15
 
 /**
  * 화면에서 "예측"과 "이동중"을 몇 주치 보여줄지. 리드타임이 긴 법인(브라질 3주)의 출하도

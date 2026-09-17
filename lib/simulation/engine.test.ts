@@ -15,9 +15,18 @@ import {
   pendingShipments,
   projectedNextWeekStock,
   reassignShipment,
+  remainingShipCapacity,
   uncontrollableWeeks,
+  weeklyShipCapacity,
 } from "./engine"
-import { CORP_BY_ID, CORPS } from "./master-data"
+import {
+  CORP_BY_ID,
+  CORPS,
+  DEFAULT_FORECAST_JITTER,
+  HARDCORE_CAPACITY_MARGIN,
+  HARDCORE_FORECAST_JITTER,
+  MOQ,
+} from "./master-data"
 
 describe("computeDio / classifyDio", () => {
   it("주간 판매예측을 7로 나눈 일평균으로 재고를 나눈 값이다", () => {
@@ -369,5 +378,104 @@ describe("incomingByArrivalWeek", () => {
     const game = createInitialGame(4, 1)
     const withShipment = allocateShipment(game, "kr", 250)
     expect(incomingByArrivalWeek(withShipment, "kr")).toEqual([])
+  })
+})
+
+describe("고인물 모드(예측 편차 확대 · 생산법인 주간 출하 제약)", () => {
+  it("기간이 12주(고인물 모드)일 때만 hardcore가 켜진다", () => {
+    expect(createInitialGame(4, 1).hardcore).toBe(false)
+    expect(createInitialGame(8, 1).hardcore).toBe(false)
+    expect(createInitialGame(12, 1).hardcore).toBe(true)
+  })
+
+  it("일반 모드는 예측 편차가 기본치(±15%)를 넘지 않는다", () => {
+    const game = createInitialGame(4, 1)
+    for (const week of Object.keys(game.forecastByWeek).map(Number)) {
+      for (const corp of CORPS) {
+        const ratio = game.forecastByWeek[week][corp.id] / corp.baseWeeklyForecast
+        expect(Math.abs(ratio - 1)).toBeLessThanOrEqual(DEFAULT_FORECAST_JITTER + 0.01)
+      }
+    }
+  })
+
+  it("고인물 모드는 예측 편차가 기본치(±15%)를 넘어설 수 있지만, 고인물 편차치(±40%) 안에는 머문다", () => {
+    // 확률적으로 나오는 값이라 특정 주차·법인을 지정하지 않고, 12+7주 전체·6개 법인 중
+    // 하나라도 기본 편차 밴드를 벗어나는지로 확인한다.
+    const game = createInitialGame(12, 1)
+    const weeks = Object.keys(game.forecastByWeek).map(Number)
+    const exceedsDefaultBand = weeks.some((week) =>
+      CORPS.some((corp) => {
+        const ratio = game.forecastByWeek[week][corp.id] / corp.baseWeeklyForecast
+        return Math.abs(ratio - 1) > DEFAULT_FORECAST_JITTER + 0.01
+      })
+    )
+    expect(exceedsDefaultBand).toBe(true)
+
+    for (const week of weeks) {
+      for (const corp of CORPS) {
+        const ratio = game.forecastByWeek[week][corp.id] / corp.baseWeeklyForecast
+        expect(Math.abs(ratio - 1)).toBeLessThanOrEqual(HARDCORE_FORECAST_JITTER + 0.01)
+      }
+    }
+  })
+
+  it("일반 모드는 생산법인 주간 출하량에 제약이 없다", () => {
+    const game = createInitialGame(4, 1)
+    expect(weeklyShipCapacity(game)).toBe(Number.POSITIVE_INFINITY)
+    const afterHuge = allocateShipment(game, "us", 100_000)
+    expect(afterHuge.productionStock).toBe(game.productionStock - 100_000)
+  })
+
+  it("고인물 모드의 주간 출하 상한은 그 주 전체 판매예측의 1.15배를 100 단위로 올림한 값이다", () => {
+    const game = createInitialGame(12, 1)
+    const totalDemand = CORPS.reduce((sum, corp) => sum + game.forecastByWeek[game.currentWeek][corp.id], 0)
+    const expectedCapacity = Math.ceil((totalDemand * HARDCORE_CAPACITY_MARGIN) / MOQ) * MOQ
+    expect(weeklyShipCapacity(game)).toBe(expectedCapacity)
+  })
+
+  it("고인물 모드의 주간 출하 상한은 매주 그 주 총 수요보다 항상 크거나 같다(원천적으로 해결 불가능한 결품을 만들지 않는다)", () => {
+    let state = createInitialGame(12, 3)
+    while (!state.finished) {
+      const totalDemand = CORPS.reduce(
+        (sum, corp) => sum + state.forecastByWeek[state.currentWeek][corp.id],
+        0
+      )
+      expect(weeklyShipCapacity(state)).toBeGreaterThanOrEqual(totalDemand)
+      state = advanceWeek(state)
+    }
+  })
+
+  it("고인물 모드에서 주간 상한을 넘는 배정은 거부되어 상태가 그대로 유지된다", () => {
+    const game = createInitialGame(12, 1)
+    const capacity = weeklyShipCapacity(game)
+    const withinCap = allocateShipment(game, "us", capacity)
+    expect(remainingShipCapacity(withinCap)).toBe(0)
+
+    const overCap = allocateShipment(withinCap, "gb", MOQ)
+    expect(overCap).toBe(withinCap)
+  })
+
+  it("고인물 모드에서 취소하면 그만큼 이번 주 출하량이 되돌아와 다시 배정할 수 있다", () => {
+    const game = createInitialGame(12, 1)
+    const capacity = weeklyShipCapacity(game)
+    // 미국 리드타임 2주라 pending 출하가 생겨 취소할 수 있다.
+    const withinCap = allocateShipment(game, "us", capacity)
+    const shipmentId = pendingShipments(withinCap)[0].id
+
+    const cancelled = cancelShipment(withinCap, shipmentId)
+    expect(remainingShipCapacity(cancelled)).toBe(capacity)
+
+    const reallocated = allocateShipment(cancelled, "gb", MOQ)
+    expect(remainingShipCapacity(reallocated)).toBe(capacity - MOQ)
+  })
+
+  it("다음 주로 넘기면 이번 주 출하 사용량이 초기화된다", () => {
+    const game = createInitialGame(12, 1)
+    const withShipment = allocateShipment(game, "us", MOQ)
+    expect(withShipment.shippedThisWeek).toBe(MOQ)
+
+    const afterAdvance = advanceWeek(withShipment)
+    expect(afterAdvance.shippedThisWeek).toBe(0)
+    expect(remainingShipCapacity(afterAdvance)).toBe(weeklyShipCapacity(afterAdvance))
   })
 })

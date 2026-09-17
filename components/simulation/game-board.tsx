@@ -10,6 +10,8 @@ import {
   incomingByArrivalWeek,
   nextWeekIncoming,
   pendingShipments,
+  remainingShipCapacity,
+  weeklyShipCapacity,
 } from "@/lib/simulation/engine"
 import { CORP_MAP_POSITION } from "@/lib/simulation/map-positions"
 import { CORPS, DISPLAY_WINDOW_WEEKS } from "@/lib/simulation/master-data"
@@ -39,7 +41,13 @@ export function GameBoard({ state, onAllocate, onReassign, onCancel, onAdvance }
         <Button onClick={onAdvance}>다음 주</Button>
       </div>
 
-      <ProductionWarehouseCard pending={pending} stock={state.productionStock} onCancel={onCancel} />
+      <ProductionWarehouseCard
+        pending={pending}
+        stock={state.productionStock}
+        onCancel={onCancel}
+        weeklyCapacity={weeklyShipCapacity(state)}
+        remainingCapacity={remainingShipCapacity(state)}
+      />
 
       <div className="overflow-x-auto rounded-lg">
         <div

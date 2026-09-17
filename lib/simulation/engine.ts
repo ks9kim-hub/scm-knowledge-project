@@ -1,11 +1,15 @@
 import {
   CORPS,
   CORP_BY_ID,
+  DEFAULT_FORECAST_JITTER,
   DIO_EXCESS_MIN,
   DIO_SHORTAGE_MAX,
   DIO_TARGET,
   DISPLAY_WINDOW_WEEKS,
+  HARDCORE_CAPACITY_MARGIN,
+  HARDCORE_FORECAST_JITTER,
   MOQ,
+  PERIOD_OPTIONS,
 } from "./master-data"
 import type { CorpId, CorpMaster, CorpWeekRecord, DioStatus, GameState, Shipment, WeekRecord } from "./types"
 
@@ -33,13 +37,14 @@ export function classifyDio(dio: number): DioStatus {
 
 function generateForecastByWeek(
   periodWeeks: number,
-  rng: () => number
+  rng: () => number,
+  jitterAmplitude: number
 ): Record<number, Record<CorpId, number>> {
   const forecastByWeek: Record<number, Record<CorpId, number>> = {}
   for (let week = 1; week <= periodWeeks; week++) {
     const weekForecast = {} as Record<CorpId, number>
     for (const corp of CORPS) {
-      const jitter = 1 + (rng() * 2 - 1) * 0.15
+      const jitter = 1 + (rng() * 2 - 1) * jitterAmplitude
       weekForecast[corp.id] = Math.max(1, Math.round(corp.baseWeeklyForecast * jitter))
     }
     forecastByWeek[week] = weekForecast
@@ -119,9 +124,11 @@ function createInitialShipments(
 
 export function createInitialGame(periodWeeks: number, seed: number = Date.now()): GameState {
   const rng = mulberry32(seed)
+  const hardcore = PERIOD_OPTIONS.find((option) => option.weeks === periodWeeks)?.hardcore ?? false
+  const jitterAmplitude = hardcore ? HARDCORE_FORECAST_JITTER : DEFAULT_FORECAST_JITTER
   // 기간이 짧아도 "예측"·"이동중" 화면은 최소 DISPLAY_WINDOW_WEEKS주만큼 내다볼 수 있어야
   // 하므로, 실제 게임 기간보다 더 먼 주차까지 예측 데이터를 미리 만들어 둔다.
-  const forecastByWeek = generateForecastByWeek(periodWeeks + DISPLAY_WINDOW_WEEKS - 1, rng)
+  const forecastByWeek = generateForecastByWeek(periodWeeks + DISPLAY_WINDOW_WEEKS - 1, rng, jitterAmplitude)
 
   const salesWarehouseStock = {} as Record<CorpId, number>
   for (const corp of CORPS) {
@@ -133,6 +140,8 @@ export function createInitialGame(periodWeeks: number, seed: number = Date.now()
     periodWeeks,
     currentWeek: 1,
     finished: false,
+    hardcore,
+    shippedThisWeek: 0,
     salesWarehouseStock,
     productionStock: totalForecast(forecastByWeek[1]) * 3,
     forecastByWeek,
@@ -142,14 +151,36 @@ export function createInitialGame(periodWeeks: number, seed: number = Date.now()
 }
 
 /**
- * 생산법인 창고에서 destination으로 물량을 내보낸다. 물량은 항상 충분하므로 막히지 않는다.
+ * 고인물 모드에서 생산법인이 이번 주에 실제로 내보낼 수 있는 총 출하량. 그 주 전체 판매예측
+ * 합계에 여유(HARDCORE_CAPACITY_MARGIN)를 두고 MOQ 단위로 올림해, 아무리 잘해도 못 채우는
+ * 결품이 나지 않게 하면서도 여섯 법인에 나눠 배정하려면 우선순위를 따지게 한다. 일반 모드는
+ * 제약이 없다.
+ */
+export function weeklyShipCapacity(state: GameState): number {
+  if (!state.hardcore) return Number.POSITIVE_INFINITY
+  const total = totalForecast(state.forecastByWeek[state.currentWeek])
+  return Math.ceil((total * HARDCORE_CAPACITY_MARGIN) / MOQ) * MOQ
+}
+
+/** 이번 주에 아직 배정할 수 있는 남은 출하량. */
+export function remainingShipCapacity(state: GameState): number {
+  if (!state.hardcore) return Number.POSITIVE_INFINITY
+  return Math.max(0, weeklyShipCapacity(state) - state.shippedThisWeek)
+}
+
+/**
+ * 생산법인 창고에서 destination으로 물량을 내보낸다. 물량 자체는 항상 충분해 막히지 않지만,
+ * 고인물 모드에서는 이번 주 출하량이 weeklyShipCapacity를 넘으면 거부한다(state 그대로 반환).
  * 리드타임 0주(한국)는 생산법인과 같은 나라라 이동 시간이 없으므로, 대기(pending) 단계 없이
  * 배정한 즉시 판매법인 창고 재고에 반영한다 — 그래서 취소도 되지 않는다. 리드타임이 있는
  * 법인은 기존대로 pending 출하를 만들어 이후 도착 주차에 반영한다.
  */
 export function allocateShipment(state: GameState, destination: CorpId, quantity: number): GameState {
   if (state.finished || quantity <= 0) return state
+  if (state.hardcore && state.shippedThisWeek + quantity > weeklyShipCapacity(state)) return state
+
   const productionStock = state.productionStock - quantity
+  const shippedThisWeek = state.shippedThisWeek + quantity
 
   if (CORP_BY_ID[destination].leadTimeWeeks === 0) {
     const salesWarehouseStock = {
@@ -161,6 +192,7 @@ export function allocateShipment(state: GameState, destination: CorpId, quantity
     return {
       ...state,
       productionStock,
+      shippedThisWeek,
       salesWarehouseStock,
       history: [...state.history.slice(0, -1), updatedRecord],
     }
@@ -174,16 +206,20 @@ export function allocateShipment(state: GameState, destination: CorpId, quantity
     arrivalWeek: state.currentWeek + CORP_BY_ID[destination].leadTimeWeeks,
     status: "pending",
   }
-  return { ...state, productionStock, shipments: [...state.shipments, shipment] }
+  return { ...state, productionStock, shippedThisWeek, shipments: [...state.shipments, shipment] }
 }
 
-/** 아직 대기 중(pending)인 출하만 취소해 생산법인 창고 재고로 되돌린다. 다음 주로 넘기기 전까지만 가능하다. */
+/**
+ * 아직 대기 중(pending)인 출하만 취소해 생산법인 창고 재고로 되돌린다. 다음 주로 넘기기 전까지만
+ * 가능하다. 고인물 모드에서는 이번 주 출하량 사용분도 함께 되돌려 다시 배정할 수 있게 한다.
+ */
 export function cancelShipment(state: GameState, shipmentId: string): GameState {
   const shipment = state.shipments.find((s) => s.id === shipmentId && s.status === "pending")
   if (!shipment) return state
   return {
     ...state,
     productionStock: state.productionStock + shipment.quantity,
+    shippedThisWeek: Math.max(0, state.shippedThisWeek - shipment.quantity),
     shipments: state.shipments.filter((s) => s.id !== shipmentId),
   }
 }
@@ -281,6 +317,7 @@ export function advanceWeek(state: GameState): GameState {
       finished: true,
       salesWarehouseStock: stockAfterSales,
       shipments: shipmentsAfterDeparture,
+      shippedThisWeek: 0,
     }
   }
 
@@ -299,6 +336,7 @@ export function advanceWeek(state: GameState): GameState {
     salesWarehouseStock: stockAfterArrivals,
     productionStock: state.productionStock + totalForecast(forecastThisWeek),
     shipments: shipmentsAfterArrival,
+    shippedThisWeek: 0,
     history: [...state.history, buildWeekRecord(newWeek, stockAfterArrivals, state.forecastByWeek[newWeek])],
   }
 }
